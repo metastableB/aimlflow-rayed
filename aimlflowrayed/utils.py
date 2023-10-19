@@ -68,9 +68,9 @@ class RunHashCache:
         return self._cache[key]
 
     def refresh(self):
-        if self._needs_refresh:
-            with open(self._cache_path, 'w') as FS:
-                json.dump(self._cache, FS)
+        with open(self._cache_path, 'w') as FS:
+            print("Run cache size", len(self._cache))
+            json.dump(self._cache, FS)
 
 
 def get_mlflow_experiments(client, experiment):
@@ -219,7 +219,7 @@ def collect_metrics(aim_run, mlflow_run, mlflow_client, timestamp=None):
             aim_run.track(m.value, step=m.step, name=m.key)
 
 def convert_existing_logs(repo_path, tracking_uri, experiment=None,
-                          excluded_artifacts=None, no_cache=False):
+                          excluded_artifacts=None, no_cache=False, max_concur=1):
     # Perform non-default cases using the provided impolementation
     client = mlflow.tracking.client.MlflowClient(tracking_uri=tracking_uri)
     experiments = get_mlflow_experiments(client, experiment)
@@ -234,17 +234,21 @@ def convert_existing_logs(repo_path, tracking_uri, experiment=None,
         exp_refs = []
         for run in tqdm(runs, desc=f'Parsing mlflow runs for experiment `{ex.name}`', total=len(runs)):
             # get corresponding `aim.Run` object for mlflow run
-            kwargs = {'repo_path': repo_path, 'run_cache': run_cache, 
+            kwargs = {
+                'repo_path': repo_path, 'run_cache': run_cache, 
                     'tracking_uri': tracking_uri,
                       'mlflow_runid': run.info.run_id,
                       'mlflow_runname': run.info.run_name, 'exp_name': ex.name,
-                    'excluded_artifacts': excluded_artifacts}
-            res = process_run.remote(**kwargs)
+                        'excluded_artifacts': excluded_artifacts
+            }
+            # Use resources to limit concurrency
+            res = process_run.options(**{'num_cpus': 1.0}).remote(**kwargs)
             exp_refs.append(res)
         # Apply the remote function to all runs in the experiment
         ray.get(exp_refs)
 
     ray.get(run_cache.refresh.remote())
+    print("Done with everything.")
 
 
 
@@ -258,6 +262,7 @@ def process_run(repo_path, run_cache, tracking_uri, mlflow_runid, mlflow_runname
     ex = get_mlflow_experiments(client, exp_name)
     # Will fail with an exception if run does not exist. Should not happen.
     mlflow_run = client.get_run(mlflow_runid)
+    collect_run_params(aim_run, mlflow_run)
     collect_metrics(aim_run, mlflow_run, client)
     collect_artifacts(aim_run, mlflow_run, client, excluded_artifacts)
 

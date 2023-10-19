@@ -26,7 +26,9 @@ def cli_entry_point():
 @click.option('--mlflow-tracking-uri',  required=False, default=None)
 @click.option('--experiment', '-e', required=False, default=None)
 @click.option('--exclude-artifacts', multiple=True, required=False)
-def sync(aim_repo, mlflow_tracking_uri, experiment, exclude_artifacts):
+@click.option('--continuous-mode', required=False, default=False)
+def sync(aim_repo, mlflow_tracking_uri, experiment, exclude_artifacts,
+         continuous_mode):
 
     repo_path = clean_repo_path(aim_repo) or Repo.default_repo_path()
 
@@ -37,6 +39,10 @@ def sync(aim_repo, mlflow_tracking_uri, experiment, exclude_artifacts):
 
     click.echo('Converting existing MLflow logs.')
     convert_existing_logs(repo_path, mlflow_tracking_uri, experiment, exclude_artifacts)
+
+    if continuous_mode is False:
+        click.echo("Done with transfer. Exiting")
+        return 
 
     repo_inst = Repo.from_path(repo_path)
     watcher = MLFlowWatcher(repo_inst, mlflow_tracking_uri, experiment, exclude_artifacts)
