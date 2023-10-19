@@ -14,6 +14,8 @@
 </div>
 
 <div align="center">
+  <h1>aimlflow-Rayed</h1>
+  Aimflow patched to use `ray` for parallelization.
   <h1>aimlflow</h1>
   <h3>Aim-powered supercharged UI for MLFlow logs</h3>
   Run beautiful UI on top of your MLflow logs and get powerful run comparison features.
