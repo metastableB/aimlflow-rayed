@@ -5,7 +5,9 @@ import mlflow
 import json
 import time
 import os.path
+import ray
 
+from aim.sdk.repo import Repo
 from ast import literal_eval
 from tempfile import TemporaryDirectory
 from tqdm import tqdm
@@ -36,7 +38,7 @@ AUDIO_EXTENSIONS = (
     'wav',
 )
 
-
+@ray.remote
 class RunHashCache:
     def __init__(self, repo_path, no_cache=False):
         self._cache_path = os.path.join(repo_path, 'mlflow_logs_cache')
@@ -50,6 +52,9 @@ class RunHashCache:
                 self._cache = json.load(FS)
         except Exception:
             self._cache = {}
+
+    def set(self, run_id, hashval):
+        self.__setitem__(run_id, hashval)
 
     def get(self, run_id):
         return self._cache.get(run_id)
@@ -85,9 +90,10 @@ def get_mlflow_experiments(client, experiment):
 
 
 def get_aim_run(repo_inst, run_id, run_name, experiment_name, run_cache):
-    if run_cache.get(run_id):
+    run_ = ray.get(run_cache.get.remote(run_id))
+    if run_:
         aim_run = Run(
-            run_hash=run_cache[run_id],
+            run_hash=run_,
             repo=repo_inst,
             system_tracking_interval=None,
             capture_terminal_logs=False,
@@ -100,7 +106,7 @@ def get_aim_run(repo_inst, run_id, run_name, experiment_name, run_cache):
             capture_terminal_logs=False,
             experiment=experiment_name,
         )
-        run_cache[run_id] = aim_run.hash
+        ray.get(run_cache.set.remote(run_id, aim_run.hash))
     aim_run.name = run_name
     return aim_run
 
@@ -212,28 +218,48 @@ def collect_metrics(aim_run, mlflow_run, mlflow_client, timestamp=None):
         for m in metric_history:
             aim_run.track(m.value, step=m.step, name=m.key)
 
-
-def convert_existing_logs(repo_inst, tracking_uri, experiment=None, excluded_artifacts=None, no_cache=False):
+def convert_existing_logs(repo_path, tracking_uri, experiment=None,
+                          excluded_artifacts=None, no_cache=False):
+    # Perform non-default cases using the provided impolementation
     client = mlflow.tracking.client.MlflowClient(tracking_uri=tracking_uri)
-
     experiments = get_mlflow_experiments(client, experiment)
-    run_cache = RunHashCache(repo_inst.path, no_cache)
+    # Don't 
+    no_cache = False
+    # Create a cache of processed/seen runs. This will use a backend json
+    # storage if no_cache is False. Otherwise, we just maintain a dict
+    # internally.
+    run_cache = RunHashCache.remote(repo_path, no_cache)
     for ex in tqdm(experiments, desc=f'Parsing mlflow experiments in {tracking_uri}', total=len(experiments)):
         runs = client.search_runs(ex.experiment_id)
-
+        exp_refs = []
         for run in tqdm(runs, desc=f'Parsing mlflow runs for experiment `{ex.name}`', total=len(runs)):
             # get corresponding `aim.Run` object for mlflow run
-            aim_run = get_aim_run(repo_inst, run.info.run_id, run.info.run_name, ex.name, run_cache)
-            # Collect params and tags
-            collect_run_params(aim_run, run)
+            kwargs = {'repo_path': repo_path, 'run_cache': run_cache, 
+                    'tracking_uri': tracking_uri,
+                      'mlflow_runid': run.info.run_id,
+                      'mlflow_runname': run.info.run_name, 'exp_name': ex.name,
+                    'excluded_artifacts': excluded_artifacts}
+            res = process_run.remote(**kwargs)
+            exp_refs.append(res)
+        # Apply the remote function to all runs in the experiment
+        ray.get(exp_refs)
 
-            # Collect metrics
-            collect_metrics(aim_run, run, client)
+    ray.get(run_cache.refresh.remote())
 
-            # Collect artifacts
-            collect_artifacts(aim_run, run, client, excluded_artifacts)
 
-    run_cache.refresh()
+
+@ray.remote
+def process_run(repo_path, run_cache, tracking_uri, mlflow_runid, mlflow_runname,
+                exp_name, excluded_artifacts=None):
+    repo_inst = Repo.from_path(repo_path)
+    aim_run = get_aim_run(repo_inst, mlflow_runid, mlflow_runname, exp_name, run_cache)
+
+    client = mlflow.tracking.client.MlflowClient(tracking_uri=tracking_uri)
+    ex = get_mlflow_experiments(client, exp_name)
+    # Will fail with an exception if run does not exist. Should not happen.
+    mlflow_run = client.get_run(mlflow_runid)
+    collect_metrics(aim_run, mlflow_run, client)
+    collect_artifacts(aim_run, mlflow_run, client, excluded_artifacts)
 
 
 def _wait_forever(watcher):

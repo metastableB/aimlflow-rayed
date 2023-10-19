@@ -8,8 +8,8 @@ from click import ClickException
 from aim.sdk.repo import Repo
 from aim.sdk.utils import clean_repo_path
 
-from aimlflow.utils import convert_existing_logs
-from aimlflow.watcher import MLFlowWatcher
+from aimlflowrayed.utils import convert_existing_logs
+from aimlflowrayed.watcher import MLFlowWatcher
 core._verify_python3_env = lambda: None
 
 
@@ -29,18 +29,19 @@ def cli_entry_point():
 def sync(aim_repo, mlflow_tracking_uri, experiment, exclude_artifacts):
 
     repo_path = clean_repo_path(aim_repo) or Repo.default_repo_path()
-    repo_inst = Repo.from_path(repo_path)
 
     mlflow_tracking_uri = mlflow_tracking_uri or os.environ.get('MLFLOW_TRACKING_URI')
     if not mlflow_tracking_uri:
         raise ClickException('MLFlow tracking URI must be provided either through ENV or CLI.')
 
-    watcher = MLFlowWatcher(repo_inst, mlflow_tracking_uri, experiment, exclude_artifacts)
 
     click.echo('Converting existing MLflow logs.')
-    convert_existing_logs(repo_inst, mlflow_tracking_uri, experiment, exclude_artifacts)
+    convert_existing_logs(repo_path, mlflow_tracking_uri, experiment, exclude_artifacts)
+
+    repo_inst = Repo.from_path(repo_path)
+    watcher = MLFlowWatcher(repo_inst, mlflow_tracking_uri, experiment, exclude_artifacts)
 
     click.echo(f'Starting watcher on {mlflow_tracking_uri}.')
     watcher.start()
-    from aimlflow.utils import _wait_forever
+    from aimlflowrayed.utils import _wait_forever
     _wait_forever(watcher)

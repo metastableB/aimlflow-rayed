@@ -3,7 +3,7 @@ import os
 from shutil import rmtree
 from setuptools import find_packages, setup, Command
 
-version_file = 'aimlflow/VERSION'
+version_file = 'aimlflowrayed/VERSION'
 
 __version__ = None
 with open(version_file) as vf:
@@ -13,7 +13,7 @@ with open(version_file) as vf:
 here = os.path.abspath(os.path.dirname(__file__))
 
 # Package meta-data
-NAME = 'aim-mlflow'
+NAME = 'aimlflowrayed'
 DESCRIPTION = 'Aim-MLflow integration'
 VERSION = __version__
 REQUIRES_PYTHON = '>=3.7.0'
@@ -24,9 +24,9 @@ LONG_DESCRIPTION = readme_text.strip()
 
 # Get packages
 packages = find_packages(exclude=('tests', 'examples'))
-version_files = ['../aimlflow/VERSION', ]
+version_files = ['../aimlflowrayed/VERSION', ]
 
-package_data = {'aimlflow': version_files}
+package_data = {'aimlflowrayed': version_files}
 
 
 REQUIRED = [
@@ -98,7 +98,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'aimlflow=aimlflow.cli:cli_entry_point',
+            'aimlflowrayed=aimlflowrayed.cli:cli_entry_point',
         ],
     },
 )

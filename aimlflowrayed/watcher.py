@@ -4,9 +4,10 @@ import time
 from threading import Thread
 from typing import Union, TYPE_CHECKING, Dict
 
+import ray
 import mlflow.entities
 from mlflow import MlflowClient
-from aimlflow.utils import (
+from aimlflowrayed.utils import (
     get_mlflow_experiments,
     get_aim_run,
     collect_metrics,
@@ -95,7 +96,7 @@ class MLFlowWatcher:
         # process active runs
         active_mlflow_runs = self._get_current_active_mlflow_runs()
 
-        run_cache = RunHashCache(self._repo.path)
+        run_cache = RunHashCache.remote(self._repo.path)
         active_mlflow_run_ids = set()
 
         for mlflow_run in active_mlflow_runs:
@@ -128,7 +129,7 @@ class MLFlowWatcher:
 
         # refresh runs cache and update timer
         self._last_watch_time = watch_started_time
-        run_cache.refresh()
+        ray.get(run_cache.refresh.remote())
 
     def _watch(self):
         self._process_runs()
